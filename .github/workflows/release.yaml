@@ -4,7 +4,9 @@
     on:
       push:
         tags:
-          - "*"
+          - "*.*.*"
+        branches:
+          - main
       workflow_dispatch:
         inputs:
           logLevel:
@@ -17,6 +19,8 @@
       DANDANAPI_KEY: ${{ secrets.DANDANAPI_KEY }}
       KAZUMI_APPID: ${{ secrets.KAZUMI_APPID }}
       KAZUMI_KEY: ${{ secrets.KAZUMI_KEY }}
+      RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || 'nightly' }}
+      PACKAGE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '0.0.0~nightly' }}
 
     jobs:
       flutter-test:
@@ -66,7 +70,7 @@
           - name: Clone repository
             uses: actions/checkout@v4
           - name: Extract tag name
-            run: echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+            run: echo "tag=$RELEASE_TAG" >> $GITHUB_ENV
             shell: bash
           - name: Echo build progress
             run: echo "Kazumi_android_${{ env.tag }}.apk build progress"
@@ -101,7 +105,7 @@
               --dart-define=KAZUMI_KEY=$KAZUMI_KEY
             shell: bash
           - name: Package android build output
-            run: cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk Kazumi_android_${env:tag}.apk
+            run: cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk Kazumi_android_${tag}.apk
             shell: bash
 
           - name: Upload android outputs
@@ -120,7 +124,7 @@
           - name: Clone repository
             uses: actions/checkout@v4
           - run: |
-                  $tag = "${{ github.ref }}".Replace('refs/tags/', '')
+                  $tag = "${env:RELEASE_TAG}"
                   echo "tag=$(echo $tag)" >> $env:GITHUB_ENV
           - run: echo "Kazumi_windows_${env:tag}.zip build progress"
           - run: choco install yq
@@ -155,6 +159,7 @@
           # Sign Zip
           - run: New-Item -Path "build/windows/zip_signed_output" -ItemType Directory
           - name: sign windows zip
+            if: ${{ github.ref_type == 'tag' }}
             uses: signpath/github-action-submit-signing-request@v1.1
             with:
               api-token: '${{ secrets.SIGNPATH_API_TOKEN }}'
@@ -167,6 +172,7 @@
               output-artifact-directory: 'build/windows/zip_signed_output'
           
           - name: Upload windows zip signed ouputs
+            if: ${{ github.ref_type == 'tag' }}
             uses: actions/upload-artifact@v4
             id: signed-windows-zip-artifacts
             with:
@@ -175,6 +181,7 @@
               
           # Replace Unpacked Artifact with Signed Artifact
           - name: Replace Unpacked Artifact with Signed Artifact
+            if: ${{ github.ref_type == 'tag' }}
             run: Expand-Archive -Path "build/windows/zip_signed_output/Kazumi_windows_${env:tag}.zip" -DestinationPath "build/windows/x64/runner/Release" -Force
           
           # Build Unsigned MSIX
@@ -191,6 +198,7 @@
           # Sign MSIX
           - run: New-Item -Path "build/windows/msix_signed_output" -ItemType Directory
           - name: sign windows msix
+            if: ${{ github.ref_type == 'tag' }}
             uses: signpath/github-action-submit-signing-request@v1.1
             with:
               api-token: '${{ secrets.SIGNPATH_API_TOKEN }}'
@@ -203,6 +211,7 @@
               output-artifact-directory: 'build/windows/msix_signed_output'
           
           - name: Upload windows msix signed ouputs
+            if: ${{ github.ref_type == 'tag' }}
             uses: actions/upload-artifact@v4
             id: signed-windows-msix-artifacts
             with:
@@ -218,7 +227,7 @@
           - name: Clone repository
             uses: actions/checkout@v4
           - name: Extract tag name
-            run: echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+            run: echo "tag=$RELEASE_TAG" >> $GITHUB_ENV
             shell: bash
           - name: Echo build progress
             run: echo "Kazumi_linux_${{ env.tag }}_amd64.tar.gz build progress"
@@ -285,7 +294,7 @@
               cat>DEBIAN/control<<EOF
               Maintainer: madoka773 <valigarmanda55@gmail.com>
               Package: Kazumi
-              Version: ${{ env.tag }}
+              Version: ${{ env.PACKAGE_VERSION }}
               Section: x11
               Priority: optional
               Architecture: amd64
@@ -322,7 +331,7 @@
           - name: Clone repository
             uses: actions/checkout@v4
           - name: Extract tag name
-            run: echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+            run: echo "tag=$RELEASE_TAG" >> $GITHUB_ENV
             shell: bash
           - name: Echo build progress
             run: echo "Kazumi_linux_${{ env.tag }}_arm64 build progress"
@@ -368,7 +377,7 @@
               cat>DEBIAN/control<<EOF
               Maintainer: madoka773 <valigarmanda55@gmail.com>
               Package: Kazumi
-              Version: ${{ env.tag }}
+              Version: ${{ env.PACKAGE_VERSION }}
               Section: x11
               Priority: optional
               Architecture: arm64
@@ -406,7 +415,7 @@
           - name: Clone repository
             uses: actions/checkout@v4
           - name: Extract tag name
-            run: echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+            run: echo "tag=$RELEASE_TAG" >> $GITHUB_ENV
           - name: Echo build progress
             run: echo "Kazumi_ios_${{ env.tag }}.ipa build progress"
           - name: Set up Flutter
@@ -444,7 +453,7 @@
           - name: Clone repository
             uses: actions/checkout@v4
           - name: Extract tag name
-            run: echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+            run: echo "tag=$RELEASE_TAG" >> $GITHUB_ENV
           - name: Echo build progress
             run: echo "Kazumi_macos_${{ env.tag }}.dmg build progress"
           - name: Set up Flutter
@@ -481,7 +490,7 @@
           - name: Clone repository
             uses: actions/checkout@v4
           - name: Extract tag name
-            run: echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+            run: echo "tag=$RELEASE_TAG" >> $GITHUB_ENV
             shell: bash
           - name: Set up JDK 17
             uses: actions/setup-java@v4
@@ -496,22 +505,22 @@
           - name: Download windows zip build file
             uses: actions/download-artifact@v4
             with:
-              name: windows_zip_signed_outputs
-              path: windows_zip_signed_outputs 
+              name: ${{ github.ref_type == 'tag' && 'windows_zip_signed_outputs' || 'windows_outputs' }}
+              path: windows_zip_outputs
           - name: List files in windows_outputs directory
-            run: ls -l windows_zip_signed_outputs   
+            run: ls -l windows_zip_outputs
           - name: Copy windows build file to root
-            run: cp windows_zip_signed_outputs/* Kazumi_windows_${{ env.tag }}.zip
+            run: cp windows_zip_outputs/* Kazumi_windows_${{ env.tag }}.zip
 
           - name: Download windows msix build file
             uses: actions/download-artifact@v4
             with:
-              name: windows_msix_signed_outputs
-              path: windows_msix_signed_outputs  
-          - name: List files in windows_msix_signed_outputs directory
-            run: ls -l windows_msix_signed_outputs   
+              name: ${{ github.ref_type == 'tag' && 'windows_msix_signed_outputs' || 'windows_msix_outputs' }}
+              path: windows_msix_outputs
+          - name: List files in windows_msix_outputs directory
+            run: ls -l windows_msix_outputs
           - name: Copy windows build file to root
-            run: cp windows_msix_signed_outputs/* Kazumi_windows_${{ env.tag }}.msix
+            run: cp windows_msix_outputs/* Kazumi_windows_${{ env.tag }}.msix
 
           - name: Download android build file
             uses: actions/download-artifact@v4
@@ -568,6 +577,7 @@
             run: cp linux_arm64_outputs/* .
 
           - name: Sign APK
+            if: ${{ github.ref_type == 'tag' }}
             id: sign_app
             uses: filippoLeporati93/android-release-signer@v1
             with:
@@ -579,11 +589,21 @@
               BUILD_TOOLS_VERSION: "34.0.0"
 
           - name: Copy Signed android build file
+            if: ${{ github.ref_type == 'tag' }}
             run: cp ${{steps.sign_app.outputs.signedReleaseFile}} build/signed/Kazumi_android_${{ env.tag }}.apk
+
+          - name: Keep unsigned Android nightly build
+            if: ${{ github.ref_type != 'tag' }}
+            run: cp build/unsigned/*.apk build/signed/
 
           - name: Create release
             uses: softprops/action-gh-release@v2
             with:
+              tag_name: ${{ env.tag }}
+              name: ${{ github.ref_type == 'tag' && format('Kazumi {0}', env.tag) || 'Kazumi Nightly' }}
+              prerelease: ${{ github.ref_type != 'tag' }}
+              make_latest: ${{ github.ref_type == 'tag' }}
+              overwrite_files: ${{ github.ref_type != 'tag' }}
               files: |
                 build/signed/*.apk
                 Kazumi_windows_*.zip
