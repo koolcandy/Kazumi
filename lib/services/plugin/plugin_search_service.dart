@@ -1,9 +1,13 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:kazumi/modules/search/plugin_search_module.dart';
 import 'package:kazumi/pages/info/info_controller.dart';
 import 'package:kazumi/plugins/plugins.dart';
 import 'package:kazumi/plugins/plugins_controller.dart';
 import 'package:kazumi/services/logging/logger.dart';
 import 'package:kazumi/services/plugin/rule_engine_models.dart';
+import 'package:kazumi/services/storage/storage.dart';
 import 'package:kazumi/utils/async_session.dart';
 
 class PluginSearchService {
@@ -20,6 +24,55 @@ class PluginSearchService {
   /// invalidates the write-back of the still-running previous one.
   final Map<String, AsyncSessionOwner> _querySessions = {};
   bool _isCancelled = false;
+
+  String _cacheKey(String pluginName) {
+    return 'sourceSearchCache:${infoController.bangumiItem.id}:$pluginName';
+  }
+
+  PluginSearchResponse? _getCachedResponse(String pluginName) {
+    final jsonString = GStorage.getStringSettingByName(_cacheKey(pluginName));
+    if (jsonString == null) return null;
+
+    try {
+      final json = jsonDecode(jsonString);
+      if (json is! Map) return null;
+      final response = PluginSearchResponse.fromJson(
+        Map<String, dynamic>.from(json),
+      );
+      if (response.pluginName != pluginName || response.data.isEmpty) {
+        return null;
+      }
+      return response;
+    } catch (error) {
+      KazumiLogger().w(
+        'PluginSearchService: failed to read source cache',
+        error: error,
+      );
+      return null;
+    }
+  }
+
+  Future<void> _saveCachedResponse(PluginSearchResponse response) async {
+    if (response.data.isEmpty) return;
+
+    try {
+      final json = {
+        'pluginName': response.pluginName,
+        'data': response.data
+            .map((item) => {'name': item.name, 'src': item.src})
+            .toList(),
+      };
+      await GStorage.putStringSettingByName(
+        _cacheKey(response.pluginName),
+        jsonEncode(json),
+      );
+    } catch (error) {
+      KazumiLogger().w(
+        'PluginSearchService: failed to save source cache',
+        error: error,
+      );
+    }
+  }
 
   Future<void> querySource(String keyword, String pluginName) async {
     for (final plugin in pluginsController.pluginList) {
@@ -50,6 +103,7 @@ class PluginSearchService {
       infoController.pluginSearchStatus[pluginName] =
           PluginSearchStatus.success;
       pluginsController.validityTracker.markSearchValid(pluginName);
+      unawaited(_saveCachedResponse(result));
       infoController.pluginSearchResponseList.add(result);
       return true;
     }
@@ -66,7 +120,17 @@ class PluginSearchService {
           PluginSearchStatus.pending;
     }
     await Future.wait(
-      plugins.map((plugin) => _queryPlugin(plugin, keyword)),
+      plugins.map((plugin) async {
+        if (_isCancelled) return;
+        final cachedResponse = _getCachedResponse(plugin.name);
+        if (cachedResponse != null) {
+          infoController.pluginSearchStatus[plugin.name] =
+              PluginSearchStatus.success;
+          infoController.pluginSearchResponseList.add(cachedResponse);
+          return;
+        }
+        await _queryPlugin(plugin, keyword);
+      }),
     );
   }
 
@@ -86,6 +150,7 @@ class PluginSearchService {
           PluginSearchStatus.success;
       if (result.data.isNotEmpty) {
         pluginsController.validityTracker.markSearchValid(plugin.name);
+        unawaited(_saveCachedResponse(result));
       }
       infoController.pluginSearchResponseList.add(result);
     } catch (error) {
