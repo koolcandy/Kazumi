@@ -32,10 +32,15 @@ jobs:
 
       - name: Merge upstream
         run: |
-          if ! git merge --no-edit upstream/main; then
+          if ! git merge --no-commit --no-ff upstream/main; then
             git merge --abort || true
             echo "::error::上游合并冲突，需要手动解决"
             exit 1
+          fi
+
+          if git rev-parse -q --verify MERGE_HEAD >/dev/null; then
+            git restore --source=HEAD --staged --worktree .github/workflows
+            git commit --no-edit
           fi
 
       - name: Push merged result
