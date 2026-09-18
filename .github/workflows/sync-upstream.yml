@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: sync-upstream-main
@@ -17,11 +17,24 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # Use a fine-grained PAT scoped to this repository with Contents and
+      # Workflows read/write permissions, stored as UPSTREAM_SYNC_TOKEN.
+      # GITHUB_TOKEN cannot push upstream changes to .github/workflows/.
+      - name: Check sync token
+        env:
+          UPSTREAM_SYNC_TOKEN: ${{ secrets.UPSTREAM_SYNC_TOKEN }}
+        run: |
+          if [ -z "$UPSTREAM_SYNC_TOKEN" ]; then
+            echo "::error::请配置仓库 Secret UPSTREAM_SYNC_TOKEN，授予本仓库 Contents 和 Workflows 读写权限"
+            exit 1
+          fi
+
       - name: Checkout main
         uses: actions/checkout@v6
         with:
           ref: main
           fetch-depth: 0
+          token: ${{ secrets.UPSTREAM_SYNC_TOKEN }}
 
       - name: Configure git
         run: |
